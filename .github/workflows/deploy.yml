@@ -21,8 +21,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - run: npm install
-      - run: npx vite build
+      - run: npm ci
+      - run: chmod +x node_modules/.bin/*
+      - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
           path: ./dist
