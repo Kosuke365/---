@@ -2,28 +2,30 @@ import './style.css';
 import { Html5Qrcode } from 'html5-qrcode';
 
 // =========================================
+// Constants
+// =========================================
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbz29H8h-Ah-OXtNEPTkxOF5gAScKIBTZcuHcdE1B2hV7hzuXwYe5tiPZEWyXnk3MtcgCQ/exec';
+
+// =========================================
 // State
 // =========================================
 const state = {
-  gasUrl: localStorage.getItem('kimino_gas_url') || '',
   campus: localStorage.getItem('kimino_campus') || '',
   students: [],
   todayLogs: [],
   scanner: null,
   scanning: false,
   cooldown: false,
-  pendingStudent: null,  // スキャン後の生徒情報を保持
-  selectedAction: null,  // 入室 or 退室
+  selectedAction: null,  // '入室' or '退室'
 };
 
 // =========================================
 // GAS API
 // =========================================
 async function callGAS(action, data = {}) {
-  if (!state.gasUrl) throw new Error('GAS URLが設定されていません');
   const payload = { action, ...data };
   try {
-    const res = await fetch(state.gasUrl, {
+    const res = await fetch(GAS_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(payload),
@@ -33,7 +35,7 @@ async function callGAS(action, data = {}) {
   } catch (e) {
     console.error('GAS API Error:', e);
     if (action === 'log') {
-      await fetch(state.gasUrl, {
+      await fetch(GAS_URL, {
         method: 'POST',
         mode: 'no-cors',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -54,7 +56,7 @@ async function loadStudents() {
     }
   } catch (e) {
     console.error('生徒データ取得失敗:', e);
-    showError('生徒データの取得に失敗しました。GAS URLを確認してください。');
+    showError('生徒データの取得に失敗しました。');
   }
 }
 
@@ -87,7 +89,7 @@ async function startScanner() {
     await state.scanner.start(
       { facingMode: 'environment' },
       {
-        fps: 15,
+        fps: 10,
         disableFlip: false,
         experimentalFeatures: { useBarCodeDetectorIfSupported: true },
       },
@@ -97,8 +99,24 @@ async function startScanner() {
     state.scanning = true;
     console.log('📷 Scanner started');
   } catch (err) {
-    console.error('Scanner error:', err);
-    showError('カメラの起動に失敗しました。カメラの権限を確認してください。');
+    console.warn('Primary camera failed, trying fallback:', err);
+    try {
+      await state.scanner.start(
+        { facingMode: 'user' },
+        {
+          fps: 10,
+          disableFlip: false,
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
+        },
+        onScanSuccess,
+        () => {}
+      );
+      state.scanning = true;
+      console.log('📷 Scanner started (front camera)');
+    } catch (err2) {
+      console.error('Scanner error:', err2);
+      showError('カメラの起動に失敗しました。カメラの権限を確認してください。');
+    }
   }
 }
 
@@ -123,54 +141,19 @@ function onScanSuccess(decodedText) {
     return;
   }
 
-  // ポップアップ表示
-  state.pendingStudent = student;
-  showResult(student);
-}
-
-// =========================================
-// UI: Result Popup
-// =========================================
-function showResult(student) {
-  const overlay = document.getElementById('result-overlay');
-  const nameEl = document.getElementById('result-name');
-  const infoEl = document.getElementById('result-info');
-
-  nameEl.textContent = student.name;
-  infoEl.textContent = `ID: ${student.id}　•　${student.campus}`;
-
-  // 推奨アクション判定
-  const lastLog = state.todayLogs.filter(l => String(l.userId) === String(student.id)).pop();
-  const enterBtn = document.getElementById('popup-enter');
-  const exitBtn = document.getElementById('popup-exit');
-
-  enterBtn.classList.remove('recommended');
-  exitBtn.classList.remove('recommended');
-
-  if (!lastLog || lastLog.type === '退室') {
-    enterBtn.classList.add('recommended');
-  } else {
-    exitBtn.classList.add('recommended');
-  }
-
-  overlay.classList.add('visible');
-}
-
-function hideResult() {
-  document.getElementById('result-overlay').classList.remove('visible');
-  state.pendingStudent = null;
-  setTimeout(() => { state.cooldown = false; }, 500);
+  // ログ記録してポップアップ表示
+  recordLog(student, state.selectedAction);
 }
 
 // =========================================
 // Record Log
 // =========================================
-async function recordLog(type) {
-  const student = state.pendingStudent;
-  if (!student) return;
+async function recordLog(student, type) {
+  // スキャナー停止
+  await stopScanner();
 
-  hideResult();
-  showSuccess(student.name, type);
+  // ポップアップ表示
+  showResultPopup(student, type);
 
   state.todayLogs.push({
     userId: student.id,
@@ -197,21 +180,35 @@ async function recordLog(type) {
 }
 
 // =========================================
-// Success Animation
+// UI: Result Popup
 // =========================================
-function showSuccess(name, type) {
-  const overlay = document.getElementById('success-overlay');
-  const icon = document.getElementById('success-icon');
-  const text = document.getElementById('success-text');
-  const sub = document.getElementById('success-subtext');
+function showResultPopup(student, type) {
+  const overlay = document.getElementById('result-overlay');
+  const icon = document.getElementById('result-icon');
+  const message = document.getElementById('result-message');
+  const sub = document.getElementById('result-sub');
+  const time = document.getElementById('result-time');
 
-  icon.className = 'success-icon ' + (type === '入室' ? 'enter' : 'exit');
+  icon.className = 'result-icon ' + (type === '入室' ? 'enter' : 'exit');
   icon.textContent = type === '入室' ? '🏫' : '👋';
-  text.textContent = `${type}しました`;
-  sub.textContent = name;
+
+  const colorClass = type === '入室' ? 'enter-color' : 'exit-color';
+  message.innerHTML = `<span class="result-name-highlight ${colorClass}">${student.name}</span> さんが<br>${type}しました！`;
+
+  sub.textContent = `${student.campus}　•　ID: ${student.id}`;
+
+  const now = new Date();
+  time.textContent = now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
 
   overlay.classList.add('visible');
-  setTimeout(() => overlay.classList.remove('visible'), 2500);
+}
+
+function hideResultPopup() {
+  document.getElementById('result-overlay').classList.remove('visible');
+  state.cooldown = false;
+  // 入退室選択画面に戻る
+  state.selectedAction = null;
+  renderMainView();
 }
 
 // =========================================
@@ -242,7 +239,6 @@ function showError(msg) {
 // =========================================
 function showSettings() {
   const overlay = document.getElementById('settings-overlay');
-  document.getElementById('settings-url').value = state.gasUrl;
   document.getElementById('settings-campus').value = state.campus;
   overlay.classList.add('visible');
 }
@@ -252,14 +248,10 @@ function hideSettings() {
 }
 
 async function saveSettings() {
-  const url = document.getElementById('settings-url').value.trim();
   const campus = document.getElementById('settings-campus').value;
-  if (!url) { showError('GAS URLを入力してください'); return; }
   if (!campus) { showError('キャンパスを選択してください'); return; }
 
-  state.gasUrl = url;
   state.campus = campus;
-  localStorage.setItem('kimino_gas_url', url);
   localStorage.setItem('kimino_campus', campus);
   hideSettings();
 
@@ -268,7 +260,21 @@ async function saveSettings() {
 }
 
 // =========================================
-// Render: Setup
+// Navigation: 入退室選択 → スキャン
+// =========================================
+function selectAction(type) {
+  state.selectedAction = type;
+  renderScanView();
+}
+
+function goBackToSelect() {
+  stopScanner();
+  state.selectedAction = null;
+  renderMainView();
+}
+
+// =========================================
+// Render: Setup (キャンパス選択)
 // =========================================
 function renderSetup() {
   document.getElementById('app').innerHTML = `
@@ -282,20 +288,30 @@ function renderSetup() {
     </div>
     <div class="setup-screen">
       <div class="setup-icon">📷</div>
-      <div class="setup-title">初期設定</div>
+      <div class="setup-title">キャンパスを選択</div>
       <div class="setup-desc">
-        KIMINO PORTALのGASデプロイURLとキャンパスを設定してください。<br>
-        設定はこの端末に保存されます。
+        使用するキャンパスを選択して開始してください。
       </div>
-      <button class="btn-save" onclick="window.__showSettings()" style="max-width:280px">⚙️ 設定を開く</button>
+      <div class="form-group" style="max-width:320px;margin:0 auto 20px">
+        <select id="setup-campus" class="form-select">
+          <option value="">選択してください</option>
+          <option value="横浜">横浜</option>
+          <option value="武蔵小杉">武蔵小杉</option>
+          <option value="藤沢">藤沢</option>
+          <option value="津田沼">津田沼</option>
+          <option value="立川">立川</option>
+          <option value="町田">町田</option>
+          <option value="所沢">所沢</option>
+        </select>
+      </div>
+      <button class="btn-save" onclick="window.__startWithCampus()" style="max-width:280px">🚀 スキャン開始</button>
     </div>
-    ${renderSettingsModal()}
     <div id="error-banner" class="error-banner"></div>
   `;
 }
 
 // =========================================
-// Render: Main (横分割レイアウト)
+// Render: Main Shell (header + content area)
 // =========================================
 function renderMain() {
   document.getElementById('app').innerHTML = `
@@ -321,68 +337,18 @@ function renderMain() {
       </div>
     </div>
 
-    <!-- メインコンテンツ: 左カメラ + 右ボタン -->
-    <div class="main-split">
-      <!-- 左: カメラ -->
-      <div class="camera-side">
-        <div id="qr-reader"></div>
-        <div class="scanner-overlay">
-          <div class="scan-frame">
-            <div class="scan-corner-bl"></div>
-            <div class="scan-corner-br"></div>
-            <div class="scan-line"></div>
-          </div>
-        </div>
-        <div class="scan-hint">📱 QRコードをカメラに向けてください</div>
-      </div>
+    <!-- メインコンテンツ -->
+    <div class="main-content" id="main-view"></div>
 
-      <!-- 右: 入退室ボタン -->
-      <div class="action-side">
-        <div class="action-panel">
-          <div class="action-title">入退室記録</div>
-          <div class="action-desc">QRコードをスキャンすると<br>生徒名が表示されます</div>
-
-          <div class="action-buttons">
-            <button class="big-action-btn enter" id="side-enter" disabled>
-              <span class="big-action-icon">🏫</span>
-              <span class="big-action-label">入室</span>
-            </button>
-
-            <button class="big-action-btn exit" id="side-exit" disabled>
-              <span class="big-action-icon">👋</span>
-              <span class="big-action-label">退室</span>
-            </button>
-          </div>
-
-          <div class="action-footer">
-            <div class="scan-status" id="scan-status">
-              <span class="status-dot"></span>
-              スキャン待機中...
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ポップアップ: 名前確認 -->
+    <!-- 結果ポップアップ -->
     <div id="result-overlay" class="result-overlay">
       <div class="result-card">
-        <div class="result-avatar">👤</div>
-        <div id="result-name" class="result-name"></div>
-        <div id="result-info" class="result-info"></div>
-        <div class="result-actions">
-          <button id="popup-enter" class="btn-action btn-enter" onclick="window.__recordLog('入室')">🏫 入室</button>
-          <button id="popup-exit" class="btn-action btn-exit" onclick="window.__recordLog('退室')">👋 退室</button>
-        </div>
-        <button class="btn-action btn-cancel" style="margin-top:12px" onclick="window.__hideResult()">キャンセル</button>
+        <button class="result-close" onclick="window.__hideResult()">✕</button>
+        <div id="result-icon" class="result-icon">🏫</div>
+        <div id="result-message" class="result-message"></div>
+        <div id="result-sub" class="result-sub"></div>
+        <div id="result-time" class="result-time"></div>
       </div>
-    </div>
-
-    <!-- 成功アニメーション -->
-    <div id="success-overlay" class="success-overlay">
-      <div id="success-icon" class="success-icon">🏫</div>
-      <div id="success-text" class="success-text"></div>
-      <div id="success-subtext" class="success-subtext"></div>
     </div>
 
     ${renderSettingsModal()}
@@ -391,19 +357,74 @@ function renderMain() {
 
   updateClock();
   setInterval(updateClock, 1000);
-  setTimeout(() => startScanner(), 500);
+  renderMainView();
+}
+
+// =========================================
+// Render: 入退室選択 (Step 1)
+// =========================================
+function renderMainView() {
+  const view = document.getElementById('main-view');
+  if (!view) return;
+
+  view.innerHTML = `
+    <div class="action-select">
+      <div class="action-select-title">入退室管理</div>
+      <div class="action-select-heading">どちらを記録しますか？</div>
+      <div class="action-buttons">
+        <button class="big-action-btn enter" onclick="window.__selectAction('入室')">
+          <span class="big-action-icon">🏫</span>
+          <span class="big-action-label">入室</span>
+        </button>
+        <button class="big-action-btn exit" onclick="window.__selectAction('退室')">
+          <span class="big-action-icon">👋</span>
+          <span class="big-action-label">退室</span>
+        </button>
+      </div>
+    </div>
+  `;
+
+  updateStats();
+}
+
+// =========================================
+// Render: スキャン画面 (Step 2)
+// =========================================
+function renderScanView() {
+  const view = document.getElementById('main-view');
+  if (!view) return;
+
+  const type = state.selectedAction;
+  const badgeClass = type === '入室' ? 'enter' : 'exit';
+
+  view.innerHTML = `
+    <div class="scan-screen">
+      <div class="scan-header">
+        <div class="scan-type-badge ${badgeClass}">${type === '入室' ? '🏫' : '👋'} ${type}モード</div>
+        <div class="scan-instruction">QRコードをカメラに向けてください</div>
+      </div>
+      <div class="camera-container">
+        <div id="qr-reader"></div>
+        <div class="scanner-overlay">
+          <div class="scan-frame">
+            <div class="scan-corner-bl"></div>
+            <div class="scan-corner-br"></div>
+            <div class="scan-line"></div>
+          </div>
+        </div>
+      </div>
+      <button class="scan-back-btn" onclick="window.__goBack()">← 戻る</button>
+    </div>
+  `;
+
+  setTimeout(() => startScanner(), 300);
 }
 
 function renderSettingsModal() {
   return `
     <div id="settings-overlay" class="settings-overlay">
       <div class="settings-card">
-        <div class="settings-title">⚙️ 設定</div>
-        <div class="form-group">
-          <label class="form-label">GAS Web App URL</label>
-          <input id="settings-url" class="form-input" placeholder="https://script.google.com/macros/s/.../exec" />
-          <div class="form-hint">KIMINO PORTALの「ウェブアプリとしてデプロイ」で取得したURL</div>
-        </div>
+        <div class="settings-title">⚙️ キャンパス変更</div>
         <div class="form-group">
           <label class="form-label">キャンパス</label>
           <select id="settings-campus" class="form-select">
@@ -417,8 +438,8 @@ function renderSettingsModal() {
             <option value="所沢">所沢</option>
           </select>
         </div>
-        <button class="btn-save" onclick="window.__saveSettings()">💾 保存して開始</button>
-        <button class="btn-action btn-cancel" style="margin-top:12px;width:100%" onclick="window.__hideSettings()">キャンセル</button>
+        <button class="btn-save" onclick="window.__saveSettings()">💾 保存</button>
+        <button class="btn-cancel-settings" onclick="window.__hideSettings()">キャンセル</button>
       </div>
     </div>
   `;
@@ -430,14 +451,24 @@ function renderSettingsModal() {
 window.__showSettings = showSettings;
 window.__hideSettings = hideSettings;
 window.__saveSettings = saveSettings;
-window.__recordLog = recordLog;
-window.__hideResult = hideResult;
+window.__hideResult = hideResultPopup;
+window.__selectAction = selectAction;
+window.__goBack = goBackToSelect;
+window.__startWithCampus = async function() {
+  const campus = document.getElementById('setup-campus').value;
+  if (!campus) { showError('キャンパスを選択してください'); return; }
+  state.campus = campus;
+  localStorage.setItem('kimino_campus', campus);
+  renderMain();
+  await loadStudents();
+  updateStats();
+};
 
 // =========================================
 // Init
 // =========================================
 async function init() {
-  if (state.gasUrl && state.campus) {
+  if (state.campus) {
     renderMain();
     await loadStudents();
     updateStats();
