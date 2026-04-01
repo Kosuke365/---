@@ -17,6 +17,7 @@ const state = {
   scanning: false,
   cooldown: false,
   selectedAction: null,  // '入室' or '退室'
+  cameraFacing: 'user',  // 'user' (内カメ) or 'environment' (外カメ)
 };
 
 // =========================================
@@ -87,7 +88,7 @@ async function startScanner() {
 
   try {
     await state.scanner.start(
-      { facingMode: 'environment' },
+      { facingMode: state.cameraFacing },
       {
         fps: 10,
         disableFlip: false,
@@ -97,12 +98,13 @@ async function startScanner() {
       () => {}
     );
     state.scanning = true;
-    console.log('📷 Scanner started');
+    console.log('📷 Scanner started (front camera)');
   } catch (err) {
-    console.warn('Primary camera failed, trying fallback:', err);
+    const fallback = state.cameraFacing === 'user' ? 'environment' : 'user';
+    console.warn(`${state.cameraFacing} camera failed, trying ${fallback}:`, err);
     try {
       await state.scanner.start(
-        { facingMode: 'user' },
+        { facingMode: fallback },
         {
           fps: 10,
           disableFlip: false,
@@ -112,7 +114,7 @@ async function startScanner() {
         () => {}
       );
       state.scanning = true;
-      console.log('📷 Scanner started (front camera)');
+      console.log('📷 Scanner started (rear camera)');
     } catch (err2) {
       console.error('Scanner error:', err2);
       showError('カメラの起動に失敗しました。カメラの権限を確認してください。');
@@ -397,6 +399,9 @@ function renderScanView() {
   const type = state.selectedAction;
   const badgeClass = type === '入室' ? 'enter' : 'exit';
 
+  const camLabel = state.cameraFacing === 'user' ? '外カメに切替' : '内カメに切替';
+  const camIcon = state.cameraFacing === 'user' ? '🔄' : '🔄';
+
   view.innerHTML = `
     <div class="scan-screen">
       <div class="scan-header">
@@ -412,6 +417,7 @@ function renderScanView() {
             <div class="scan-line"></div>
           </div>
         </div>
+        <button class="camera-toggle-btn" onclick="window.__toggleCamera()">${camIcon} ${camLabel}</button>
       </div>
       <button class="scan-back-btn" onclick="window.__goBack()">← 戻る</button>
     </div>
@@ -454,6 +460,12 @@ window.__saveSettings = saveSettings;
 window.__hideResult = hideResultPopup;
 window.__selectAction = selectAction;
 window.__goBack = goBackToSelect;
+window.__toggleCamera = async function() {
+  await stopScanner();
+  state.cameraFacing = state.cameraFacing === 'user' ? 'environment' : 'user';
+  state.scanner = null;
+  renderScanView();
+};
 window.__startWithCampus = async function() {
   const campus = document.getElementById('setup-campus').value;
   if (!campus) { showError('キャンパスを選択してください'); return; }
