@@ -255,6 +255,33 @@ body {
   border: 1px solid var(--danger-border);
 }
 
+.scan-auto-badge {
+  display: inline-block;
+  padding: 8px 24px;
+  border-radius: 100px;
+  font-size: 14px;
+  font-weight: 800;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, var(--accent-light), #e0f2fe);
+  color: var(--accent-dark);
+  border: 1px solid rgba(255, 159, 67, 0.2);
+  animation: autoBadgePulse 2s ease-in-out infinite;
+}
+
+@keyframes autoBadgePulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 159, 67, 0.3); }
+  50% { box-shadow: 0 0 0 8px rgba(255, 159, 67, 0); }
+}
+
+.enter-stat strong { color: var(--success) !important; }
+.exit-stat strong { color: var(--danger) !important; }
+.inroom-stat { 
+  background: var(--accent-light);
+  padding: 2px 8px;
+  border-radius: 100px;
+}
+.inroom-stat strong { color: var(--accent-dark) !important; }
+
 .scan-instruction {
   font-size: 15px;
   font-weight: 600;

@@ -12,11 +12,10 @@ const GAS_URL = 'https://script.google.com/macros/s/AKfycbz29H8h-Ah-OXtNEPTkxOF5
 const state = {
   campus: localStorage.getItem('kimino_campus') || '',
   students: [],
-  todayLogs: [],
+  todayLogs: [],     // {userId, userName, type, time, campus}
   scanner: null,
   scanning: false,
   cooldown: false,
-  selectedAction: null,  // '入室' or '退室'
   cameraFacing: 'user',  // 'user' (内カメ) or 'environment' (外カメ)
 };
 
@@ -66,6 +65,19 @@ function findStudent(id) {
 }
 
 // =========================================
+// Auto-detect: 入室 or 退室
+// =========================================
+function getAutoAction(studentId) {
+  // 今日のログからその生徒の最後のアクションを取得
+  const studentLogs = state.todayLogs.filter(l => String(l.userId) === String(studentId));
+  if (studentLogs.length === 0) {
+    return '入室'; // 初回は入室
+  }
+  const lastLog = studentLogs[studentLogs.length - 1];
+  return lastLog.type === '入室' ? '退室' : '入室'; // トグル
+}
+
+// =========================================
 // Clock
 // =========================================
 function updateClock() {
@@ -98,7 +110,7 @@ async function startScanner() {
       () => {}
     );
     state.scanning = true;
-    console.log('📷 Scanner started (front camera)');
+    console.log('📷 Scanner started');
   } catch (err) {
     const fallback = state.cameraFacing === 'user' ? 'environment' : 'user';
     console.warn(`${state.cameraFacing} camera failed, trying ${fallback}:`, err);
@@ -114,7 +126,7 @@ async function startScanner() {
         () => {}
       );
       state.scanning = true;
-      console.log('📷 Scanner started (rear camera)');
+      console.log('📷 Scanner started (fallback camera)');
     } catch (err2) {
       console.error('Scanner error:', err2);
       showError('カメラの起動に失敗しました。カメラの権限を確認してください。');
@@ -143,8 +155,9 @@ function onScanSuccess(decodedText) {
     return;
   }
 
-  // ログ記録してポップアップ表示
-  recordLog(student, state.selectedAction);
+  // 自動判定: 入室 or 退室
+  const action = getAutoAction(student.id);
+  recordLog(student, action);
 }
 
 // =========================================
@@ -203,14 +216,20 @@ function showResultPopup(student, type) {
   time.textContent = now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' });
 
   overlay.classList.add('visible');
+
+  // 3秒後に自動で閉じてスキャン再開
+  setTimeout(() => {
+    hideResultPopup();
+  }, 3000);
 }
 
 function hideResultPopup() {
-  document.getElementById('result-overlay').classList.remove('visible');
+  const overlay = document.getElementById('result-overlay');
+  if (!overlay.classList.contains('visible')) return;
+  overlay.classList.remove('visible');
   state.cooldown = false;
-  // 入退室選択画面に戻る
-  state.selectedAction = null;
-  renderMainView();
+  // スキャン自動再開
+  setTimeout(() => startScanner(), 300);
 }
 
 // =========================================
@@ -219,10 +238,22 @@ function hideResultPopup() {
 function updateStats() {
   const enterCount = state.todayLogs.filter(l => l.type === '入室').length;
   const exitCount = state.todayLogs.filter(l => l.type === '退室').length;
+  const inRoom = getInRoomStudents();
   const enterEl = document.getElementById('stat-enter');
   const exitEl = document.getElementById('stat-exit');
+  const inRoomEl = document.getElementById('stat-inroom');
   if (enterEl) enterEl.textContent = enterCount;
   if (exitEl) exitEl.textContent = exitCount;
+  if (inRoomEl) inRoomEl.textContent = inRoom.length;
+}
+
+function getInRoomStudents() {
+  // todayLogsから現在入室中の生徒を算出
+  const status = {}; // userId -> last action
+  state.todayLogs.forEach(l => {
+    status[l.userId] = l;
+  });
+  return Object.values(status).filter(l => l.type === '入室');
 }
 
 // =========================================
@@ -259,20 +290,6 @@ async function saveSettings() {
 
   await loadStudents();
   renderMain();
-}
-
-// =========================================
-// Navigation: 入退室選択 → スキャン
-// =========================================
-function selectAction(type) {
-  state.selectedAction = type;
-  renderScanView();
-}
-
-function goBackToSelect() {
-  stopScanner();
-  state.selectedAction = null;
-  renderMainView();
 }
 
 // =========================================
@@ -313,9 +330,11 @@ function renderSetup() {
 }
 
 // =========================================
-// Render: Main Shell (header + content area)
+// Render: Main (常時スキャン画面)
 // =========================================
 function renderMain() {
+  const camLabel = state.cameraFacing === 'user' ? '外カメに切替' : '内カメに切替';
+
   document.getElementById('app').innerHTML = `
     <!-- ヘッダー -->
     <div class="header">
@@ -327,8 +346,9 @@ function renderMain() {
       </div>
       <div class="header-right">
         <div class="header-stats">
-          <span class="mini-stat">🏫 <strong id="stat-enter">0</strong></span>
-          <span class="mini-stat">👋 <strong id="stat-exit">0</strong></span>
+          <span class="mini-stat enter-stat">🏫 <strong id="stat-enter">0</strong></span>
+          <span class="mini-stat exit-stat">👋 <strong id="stat-exit">0</strong></span>
+          <span class="mini-stat inroom-stat">📍 <strong id="stat-inroom">0</strong>名</span>
         </div>
         <div class="header-clock-wrap">
           <div id="clock" class="header-clock">--:--:--</div>
@@ -339,8 +359,26 @@ function renderMain() {
       </div>
     </div>
 
-    <!-- メインコンテンツ -->
-    <div class="main-content" id="main-view"></div>
+    <!-- スキャン画面（常時表示） -->
+    <div class="main-content">
+      <div class="scan-screen">
+        <div class="scan-header">
+          <div class="scan-auto-badge">🔄 自動判定モード</div>
+          <div class="scan-instruction">QRコードをかざすだけ！<br>入室・退室を自動で判定します</div>
+        </div>
+        <div class="camera-container">
+          <div id="qr-reader"></div>
+          <div class="scanner-overlay">
+            <div class="scan-frame">
+              <div class="scan-corner-bl"></div>
+              <div class="scan-corner-br"></div>
+              <div class="scan-line"></div>
+            </div>
+          </div>
+          <button class="camera-toggle-btn" onclick="window.__toggleCamera()">🔄 ${camLabel}</button>
+        </div>
+      </div>
+    </div>
 
     <!-- 結果ポップアップ -->
     <div id="result-overlay" class="result-overlay">
@@ -359,71 +397,10 @@ function renderMain() {
 
   updateClock();
   setInterval(updateClock, 1000);
-  renderMainView();
-}
-
-// =========================================
-// Render: 入退室選択 (Step 1)
-// =========================================
-function renderMainView() {
-  const view = document.getElementById('main-view');
-  if (!view) return;
-
-  view.innerHTML = `
-    <div class="action-select">
-      <div class="action-select-title">入退室管理</div>
-      <div class="action-select-heading">どちらを記録しますか？</div>
-      <div class="action-buttons">
-        <button class="big-action-btn enter" onclick="window.__selectAction('入室')">
-          <span class="big-action-icon">🏫</span>
-          <span class="big-action-label">入室</span>
-        </button>
-        <button class="big-action-btn exit" onclick="window.__selectAction('退室')">
-          <span class="big-action-icon">👋</span>
-          <span class="big-action-label">退室</span>
-        </button>
-      </div>
-    </div>
-  `;
-
   updateStats();
-}
 
-// =========================================
-// Render: スキャン画面 (Step 2)
-// =========================================
-function renderScanView() {
-  const view = document.getElementById('main-view');
-  if (!view) return;
-
-  const type = state.selectedAction;
-  const badgeClass = type === '入室' ? 'enter' : 'exit';
-
-  const camLabel = state.cameraFacing === 'user' ? '外カメに切替' : '内カメに切替';
-  const camIcon = state.cameraFacing === 'user' ? '🔄' : '🔄';
-
-  view.innerHTML = `
-    <div class="scan-screen">
-      <div class="scan-header">
-        <div class="scan-type-badge ${badgeClass}">${type === '入室' ? '🏫' : '👋'} ${type}モード</div>
-        <div class="scan-instruction">QRコードをカメラに向けてください</div>
-      </div>
-      <div class="camera-container">
-        <div id="qr-reader"></div>
-        <div class="scanner-overlay">
-          <div class="scan-frame">
-            <div class="scan-corner-bl"></div>
-            <div class="scan-corner-br"></div>
-            <div class="scan-line"></div>
-          </div>
-        </div>
-        <button class="camera-toggle-btn" onclick="window.__toggleCamera()">${camIcon} ${camLabel}</button>
-      </div>
-      <button class="scan-back-btn" onclick="window.__goBack()">← 戻る</button>
-    </div>
-  `;
-
-  setTimeout(() => startScanner(), 300);
+  // カメラ起動
+  setTimeout(() => startScanner(), 500);
 }
 
 function renderSettingsModal() {
@@ -458,13 +435,11 @@ window.__showSettings = showSettings;
 window.__hideSettings = hideSettings;
 window.__saveSettings = saveSettings;
 window.__hideResult = hideResultPopup;
-window.__selectAction = selectAction;
-window.__goBack = goBackToSelect;
 window.__toggleCamera = async function() {
   await stopScanner();
   state.cameraFacing = state.cameraFacing === 'user' ? 'environment' : 'user';
   state.scanner = null;
-  renderScanView();
+  renderMain();
 };
 window.__startWithCampus = async function() {
   const campus = document.getElementById('setup-campus').value;
