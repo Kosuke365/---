@@ -144,11 +144,11 @@ body {
 .main-content {
   flex: 1;
   display: flex;
-  align-items: center;
+  align-items: stretch;
   justify-content: flex-start;
-  padding: 40px;
-  padding-left: 60px;
+  padding: 0;
   background: var(--bg-primary);
+  overflow: hidden;
 }
 
 /* ======== Step 1: 入退室選択 ======== */
@@ -226,12 +226,37 @@ body {
 
 /* ======== Step 2: スキャン画面 ======== */
 .scan-screen {
-  text-align: center;
-  max-width: 500px;
+  display: flex;
+  align-items: stretch;
+  gap: 0;
   width: 100%;
+  height: 100%;
 }
 
-.scan-header {
+.scan-info-panel {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  gap: 16px;
+  padding: 20px 0;
+  flex: 1;
+}
+
+.big-clock {
+  font-size: 96px;
+  font-weight: 900;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  letter-spacing: -3px;
+}
+
+.big-date {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-muted);
   margin-bottom: 24px;
 }
 
@@ -260,7 +285,7 @@ body {
   display: inline-block;
   padding: 8px 24px;
   border-radius: 100px;
-  font-size: 14px;
+  font-size: 20px;
   font-weight: 800;
   margin-bottom: 12px;
   background: linear-gradient(135deg, var(--accent-light), #e0f2fe);
@@ -284,20 +309,20 @@ body {
 .inroom-stat strong { color: var(--accent-dark) !important; }
 
 .scan-instruction {
-  font-size: 15px;
+  font-size: 22px;
   font-weight: 600;
+  line-height: 1.6;
   color: var(--text-secondary);
 }
 
 .camera-container {
   position: relative;
-  width: 440px;
-  height: 440px;
-  margin: 0 auto 24px;
+  width: 50%;
+  min-width: 50%;
+  height: 100%;
   background: #000;
-  border-radius: var(--radius-lg);
+  border-radius: 0;
   overflow: hidden;
-  box-shadow: var(--shadow-lg);
 }
 
 #qr-reader { width: 100%; height: 100%; }
@@ -305,7 +330,7 @@ body {
 #qr-reader video {
   width: 100% !important;
   height: 100% !important;
-  object-fit: contain !important;
+  object-fit: cover !important;
   transform: scaleX(-1) scale(1.25);
 }
 
@@ -693,6 +718,18 @@ body {
     justify-content: center;
   }
 
+  .scan-screen {
+    flex-direction: column;
+    height: auto;
+    max-height: none;
+    gap: 20px;
+  }
+
+  .scan-info-panel {
+    align-items: center;
+    text-align: center;
+  }
+
   .action-select-heading { font-size: 22px; margin-bottom: 36px; }
 
   .action-buttons { gap: 16px; }
@@ -707,7 +744,8 @@ body {
   .big-action-label { font-size: 16px; }
 
   .camera-container {
-    width: 340px;
+    width: 100%;
+    min-width: unset;
     height: 340px;
   }
 
@@ -729,7 +767,6 @@ body {
   }
 
   .camera-container {
-    width: 300px;
     height: 300px;
   }
 }

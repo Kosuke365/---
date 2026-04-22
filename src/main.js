@@ -85,8 +85,14 @@ function updateClock() {
   const now = new Date();
   const clockEl = document.getElementById('clock');
   const dateEl = document.getElementById('date');
-  if (clockEl) clockEl.textContent = now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  if (dateEl) dateEl.textContent = now.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
+  const bigClockEl = document.getElementById('big-clock');
+  const bigDateEl = document.getElementById('big-date');
+  const timeStr = now.toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const dateStr = now.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'short' });
+  if (clockEl) clockEl.textContent = timeStr;
+  if (dateEl) dateEl.textContent = dateStr;
+  if (bigClockEl) bigClockEl.textContent = timeStr;
+  if (bigDateEl) bigDateEl.textContent = dateStr;
 }
 
 // =========================================
@@ -351,10 +357,6 @@ function renderMain() {
           <span class="mini-stat exit-stat">👋 <strong id="stat-exit">0</strong></span>
           <span class="mini-stat inroom-stat">📍 <strong id="stat-inroom">0</strong>名</span>
         </div>
-        <div class="header-clock-wrap">
-          <div id="clock" class="header-clock">--:--:--</div>
-          <div id="date" class="header-date"></div>
-        </div>
         <div class="campus-badge" id="campus-name">📍 ${state.campus}</div>
         <button class="btn-settings" onclick="window.__showSettings()">⚙️</button>
       </div>
@@ -363,10 +365,6 @@ function renderMain() {
     <!-- スキャン画面（常時表示） -->
     <div class="main-content">
       <div class="scan-screen">
-        <div class="scan-header">
-          <div class="scan-auto-badge">🔄 自動判定モード</div>
-          <div class="scan-instruction">QRコードをかざすだけ！<br>入室・退室を自動で判定します</div>
-        </div>
         <div class="camera-container">
           <div id="qr-reader"></div>
           <div class="scanner-overlay">
@@ -377,6 +375,12 @@ function renderMain() {
             </div>
           </div>
           <button class="camera-toggle-btn" onclick="window.__toggleCamera()">🔄 ${camLabel}</button>
+        </div>
+        <div class="scan-info-panel">
+          <div id="big-clock" class="big-clock">--:--:--</div>
+          <div id="big-date" class="big-date"></div>
+          <div class="scan-auto-badge">🔄 自動判定モード</div>
+          <div class="scan-instruction">QRコードをかざすだけ！<br>入室・退室を自動で判定します</div>
         </div>
       </div>
     </div>
