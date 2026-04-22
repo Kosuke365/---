@@ -306,7 +306,7 @@ body {
   width: 100% !important;
   height: 100% !important;
   object-fit: contain !important;
-  transform: scaleX(-1);
+  transform: scaleX(-1) scale(1.25);
 }
 
 #qr-reader__scan_region { min-height: unset !important; }
