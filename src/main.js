@@ -1,5 +1,5 @@
 import './style.css';
-import { Html5Qrcode } from 'html5-qrcode';
+import QrScanner from 'qr-scanner';
 
 // =========================================
 // Constants
@@ -118,56 +118,37 @@ function updateClock() {
 }
 
 // =========================================
-// QR Scanner
+// QR Scanner (qr-scanner by nimiq)
 // =========================================
 async function startScanner() {
   if (state.scanning) return;
-  const reader = document.getElementById('qr-reader');
-  if (!reader) return;
+  const videoEl = document.getElementById('qr-video');
+  if (!videoEl) return;
 
-  state.scanner = new Html5Qrcode('qr-reader');
+  state.scanner = new QrScanner(
+    videoEl,
+    result => onScanSuccess(result.data),
+    {
+      preferredCamera: state.cameraFacing === 'user' ? 'user' : 'environment',
+      highlightScanRegion: false,
+      highlightCodeOutline: false,
+      maxScansPerSecond: 15,
+    }
+  );
 
   try {
-    await state.scanner.start(
-      { facingMode: state.cameraFacing },
-      {
-        fps: 15,
-        qrbox: { width: 250, height: 250 },
-        disableFlip: false,
-        experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-      },
-      onScanSuccess,
-      () => {}
-    );
+    await state.scanner.start();
     state.scanning = true;
     console.log('📷 Scanner started');
   } catch (err) {
-    const fallback = state.cameraFacing === 'user' ? 'environment' : 'user';
-    console.warn(`${state.cameraFacing} camera failed, trying ${fallback}:`, err);
-    try {
-      await state.scanner.start(
-        { facingMode: fallback },
-        {
-          fps: 15,
-          qrbox: { width: 250, height: 250 },
-          disableFlip: false,
-          experimentalFeatures: { useBarCodeDetectorIfSupported: true },
-        },
-        onScanSuccess,
-        () => {}
-      );
-      state.scanning = true;
-      console.log('📷 Scanner started (fallback camera)');
-    } catch (err2) {
-      console.error('Scanner error:', err2);
-      showError('カメラの起動に失敗しました。カメラの権限を確認してください。');
-    }
+    console.error('Scanner error:', err);
+    showError('カメラの起動に失敗しました。カメラの権限を確認してください。');
   }
 }
 
 async function stopScanner() {
   if (state.scanner && state.scanning) {
-    try { await state.scanner.stop(); } catch (e) {}
+    state.scanner.stop();
     state.scanning = false;
   }
 }
@@ -420,7 +401,7 @@ function renderMain() {
     <div class="main-content">
       <div class="scan-screen">
         <div class="camera-container">
-          <div id="qr-reader"></div>
+          <video id="qr-video" muted playsinline></video>
           <div class="scanner-overlay">
             <div class="scan-frame">
               <div class="scan-corner-bl"></div>
@@ -503,7 +484,10 @@ window.__hideResult = hideResultPopup;
 window.__toggleCamera = async function() {
   await stopScanner();
   state.cameraFacing = state.cameraFacing === 'user' ? 'environment' : 'user';
-  state.scanner = null;
+  if (state.scanner) {
+    state.scanner.destroy();
+    state.scanner = null;
+  }
   renderMain();
 };
 window.__startWithCampus = async function() {
