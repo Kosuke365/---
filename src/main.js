@@ -9,10 +9,32 @@ const GAS_URL = 'https://script.google.com/macros/s/AKfycbz29H8h-Ah-OXtNEPTkxOF5
 // =========================================
 // State
 // =========================================
+function loadTodayLogs() {
+  const todayKey = new Date().toLocaleDateString('ja-JP');
+  const saved = localStorage.getItem('kimino_todayLogs');
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved);
+      if (parsed.date === todayKey) {
+        return parsed.logs || [];
+      }
+    } catch (e) {}
+  }
+  return [];
+}
+
+function saveTodayLogs() {
+  const todayKey = new Date().toLocaleDateString('ja-JP');
+  localStorage.setItem('kimino_todayLogs', JSON.stringify({
+    date: todayKey,
+    logs: state.todayLogs,
+  }));
+}
+
 const state = {
   campus: localStorage.getItem('kimino_campus') || '',
   students: [],
-  todayLogs: [],     // {userId, userName, type, time, campus}
+  todayLogs: loadTodayLogs(),
   scanner: null,
   scanning: false,
   cooldown: false,
@@ -184,6 +206,7 @@ async function recordLog(student, type) {
     time: new Date(),
     campus: state.campus,
   });
+  saveTodayLogs();
   updateStats();
 
   try {
@@ -195,6 +218,8 @@ async function recordLog(student, type) {
       mood: 'normal',
     });
     console.log(`✅ ${student.name} ${type} logged`);
+    // GAS送信成功後、サーバーから正確な統計を取得
+    syncStatsFromServer();
   } catch (e) {
     console.error('Log failed:', e);
     showError('ログの送信に失敗しました');
@@ -243,8 +268,10 @@ function hideResultPopup() {
 // Stats
 // =========================================
 function updateStats() {
-  const enterCount = state.todayLogs.filter(l => l.type === '入室').length;
-  const exitCount = state.todayLogs.filter(l => l.type === '退室').length;
+  // ローカルログから即時表示（レスポンス用）
+  const campusLogs = state.todayLogs.filter(l => l.campus === state.campus);
+  const enterCount = campusLogs.filter(l => l.type === '入室').length;
+  const exitCount = campusLogs.filter(l => l.type === '退室').length;
   const inRoom = getInRoomStudents();
   const enterEl = document.getElementById('stat-enter');
   const exitEl = document.getElementById('stat-exit');
@@ -255,12 +282,35 @@ function updateStats() {
 }
 
 function getInRoomStudents() {
-  // todayLogsから現在入室中の生徒を算出
+  // todayLogsから現在の校舎で入室中の生徒を算出
+  const campusLogs = state.todayLogs.filter(l => l.campus === state.campus);
   const status = {}; // userId -> last action
-  state.todayLogs.forEach(l => {
+  campusLogs.forEach(l => {
     status[l.userId] = l;
   });
   return Object.values(status).filter(l => l.type === '入室');
+}
+
+// GASからリアルタイム統計を取得して表示を更新
+async function syncStatsFromServer() {
+  if (!state.campus) return;
+  try {
+    const res = await callGAS('get_room_status', { campus: state.campus });
+    if (res.success) {
+      const enterEl = document.getElementById('stat-enter');
+      const exitEl = document.getElementById('stat-exit');
+      const inRoomEl = document.getElementById('stat-inroom');
+      // 入室中の人数はサーバーから取得
+      if (inRoomEl) inRoomEl.textContent = res.count || 0;
+      // 退室済みの人数もサーバーから取得
+      if (exitEl) exitEl.textContent = (res.exitedToday || []).length;
+      // 入室回数 = 現在入室中 + 退室済み（今日入室した総数）
+      if (enterEl) enterEl.textContent = (res.count || 0) + (res.exitedToday || []).length;
+      console.log(`📊 サーバー統計同期: 入室中${res.count}名, 退室済${(res.exitedToday || []).length}名`);
+    }
+  } catch (e) {
+    console.warn('統計同期失敗（ローカル値を維持）:', e);
+  }
 }
 
 // =========================================
@@ -328,6 +378,8 @@ function renderSetup() {
           <option value="立川">立川</option>
           <option value="町田">町田</option>
           <option value="所沢">所沢</option>
+          <option value="柏">柏</option>
+          <option value="大宮">大宮</option>
         </select>
       </div>
       <button class="btn-save" onclick="window.__startWithCampus()" style="max-width:280px">🚀 スキャン開始</button>
@@ -428,6 +480,8 @@ function renderSettingsModal() {
             <option value="立川">立川</option>
             <option value="町田">町田</option>
             <option value="所沢">所沢</option>
+            <option value="柏">柏</option>
+            <option value="大宮">大宮</option>
           </select>
         </div>
         <button class="btn-save" onclick="window.__saveSettings()">💾 保存</button>
@@ -458,6 +512,8 @@ window.__startWithCampus = async function() {
   renderMain();
   await loadStudents();
   updateStats();
+  syncStatsFromServer();
+  setInterval(() => syncStatsFromServer(), 30000);
 };
 
 // =========================================
@@ -480,6 +536,8 @@ document.addEventListener('visibilitychange', () => {
       console.log('📷 スキャナー再起動...');
       startScanner();
     }
+    // サーバーから統計を再同期
+    syncStatsFromServer();
   }
 });
 
@@ -514,6 +572,10 @@ async function init() {
     renderMain();
     await loadStudents();
     updateStats();
+    // サーバーから正確な統計を取得
+    syncStatsFromServer();
+    // 30秒ごとにサーバーと同期（他デバイスのスキャンも反映）
+    setInterval(() => syncStatsFromServer(), 30000);
     await requestWakeLock();
   } else {
     renderSetup();
