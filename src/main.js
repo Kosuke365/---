@@ -131,7 +131,8 @@ async function startScanner() {
     await state.scanner.start(
       { facingMode: state.cameraFacing },
       {
-        fps: 10,
+        fps: 15,
+        qrbox: { width: 250, height: 250 },
         disableFlip: false,
         experimentalFeatures: { useBarCodeDetectorIfSupported: true },
       },
@@ -147,7 +148,8 @@ async function startScanner() {
       await state.scanner.start(
         { facingMode: fallback },
         {
-          fps: 10,
+          fps: 15,
+          qrbox: { width: 250, height: 250 },
           disableFlip: false,
           experimentalFeatures: { useBarCodeDetectorIfSupported: true },
         },
