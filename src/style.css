@@ -373,7 +373,7 @@ body {
   width: 100% !important;
   height: 100% !important;
   object-fit: cover !important;
-  transform: scaleX(-1) scale(1.00);
+  transform: scaleX(-1) scale(1.10);
 }
 
 #qr-reader__scan_region {
