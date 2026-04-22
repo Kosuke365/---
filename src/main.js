@@ -17,6 +17,7 @@ const state = {
   scanning: false,
   cooldown: false,
   cameraFacing: 'user',  // 'user' (内カメ) or 'environment' (外カメ)
+  clockIntervalId: null, // setIntervalのリーク防止用
 };
 
 // =========================================
@@ -396,7 +397,11 @@ function renderMain() {
   `;
 
   updateClock();
-  setInterval(updateClock, 1000);
+  // 既存のタイマーをクリアしてから新規作成（リーク防止）
+  if (state.clockIntervalId) {
+    clearInterval(state.clockIntervalId);
+  }
+  state.clockIntervalId = setInterval(updateClock, 1000);
   updateStats();
 
   // カメラ起動
@@ -452,6 +457,52 @@ window.__startWithCampus = async function() {
 };
 
 // =========================================
+// Page Visibility Recovery
+// ブラウザがバックグラウンドから復帰した時に
+// 時計とスキャナーを自動リカバリーする
+// =========================================
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && state.campus) {
+    console.log('🔄 ページ復帰を検出 — リカバリー中...');
+    // 時計を即座に更新
+    updateClock();
+    // タイマーを再セット（ブラウザがsuspendしている可能性があるため）
+    if (state.clockIntervalId) {
+      clearInterval(state.clockIntervalId);
+    }
+    state.clockIntervalId = setInterval(updateClock, 1000);
+    // スキャナーが停止していたら再起動
+    if (!state.scanning && !state.cooldown) {
+      console.log('📷 スキャナー再起動...');
+      startScanner();
+    }
+  }
+});
+
+// Wake Lock API: 画面スリープを防止（対応ブラウザのみ）
+let wakeLock = null;
+async function requestWakeLock() {
+  try {
+    if ('wakeLock' in navigator) {
+      wakeLock = await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener('release', () => {
+        console.log('⚡ Wake Lock released');
+      });
+      console.log('⚡ Wake Lock acquired — 画面スリープ防止中');
+    }
+  } catch (e) {
+    console.warn('Wake Lock not available:', e);
+  }
+}
+
+// Wake Lockはvisibility changeで再取得が必要
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible' && state.campus) {
+    await requestWakeLock();
+  }
+});
+
+// =========================================
 // Init
 // =========================================
 async function init() {
@@ -459,6 +510,7 @@ async function init() {
     renderMain();
     await loadStudents();
     updateStats();
+    await requestWakeLock();
   } else {
     renderSetup();
   }
