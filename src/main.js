@@ -88,16 +88,26 @@ function findStudent(id) {
 }
 
 // =========================================
-// Auto-detect: 入室 or 退室
+// Auto-detect: 入室 or 退室 (サーバー確認)
 // =========================================
-function getAutoAction(studentId) {
-  // 今日のログからその生徒の最後のアクションを取得
+async function getAutoAction(studentId) {
+  // サーバーの入室状態を確認（手動入室も反映される）
+  try {
+    const res = await callGAS('get_room_status', { campus: state.campus });
+    if (res.success) {
+      const inRoomIds = (res.inRoom || []).map(s => String(s.id));
+      return inRoomIds.includes(String(studentId)) ? '退室' : '入室';
+    }
+  } catch (e) {
+    console.warn('サーバー確認失敗、ローカルログで判定:', e);
+  }
+  // フォールバック: ローカルログで判定
   const studentLogs = state.todayLogs.filter(l => String(l.userId) === String(studentId));
   if (studentLogs.length === 0) {
-    return '入室'; // 初回は入室
+    return '入室';
   }
   const lastLog = studentLogs[studentLogs.length - 1];
-  return lastLog.type === '入室' ? '退室' : '入室'; // トグル
+  return lastLog.type === '入室' ? '退室' : '入室';
 }
 
 // =========================================
@@ -153,7 +163,7 @@ async function stopScanner() {
   }
 }
 
-function onScanSuccess(decodedText) {
+async function onScanSuccess(decodedText) {
   if (state.cooldown) return;
   state.cooldown = true;
 
@@ -167,8 +177,8 @@ function onScanSuccess(decodedText) {
     return;
   }
 
-  // 自動判定: 入室 or 退室
-  const action = getAutoAction(student.id);
+  // サーバーに問い合わせて自動判定
+  const action = await getAutoAction(student.id);
   recordLog(student, action);
 }
 
