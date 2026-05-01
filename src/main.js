@@ -58,12 +58,10 @@ async function callGAS(action, data = {}) {
   } catch (e) {
     console.error('GAS API Error:', e);
     if (action === 'log') {
-      await fetch(GAS_URL, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload),
-      });
+      // 注意: 最初のfetchはサーバーに到達済みの可能性が高い（GASの302リダイレクトで
+      // レスポンス解析だけ失敗するケースが多い）。ここで再送すると二重処理になるため、
+      // 再送せずに成功として扱う。
+      console.warn('ログ送信のレスポンス解析に失敗しましたが、サーバーには到達済みの可能性があります');
       return { success: true, fallback: true };
     }
     throw e;
