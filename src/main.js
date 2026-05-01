@@ -95,7 +95,7 @@ async function getAutoAction(studentId) {
   try {
     const res = await callGAS('get_room_status', { campus: state.campus });
     if (res.success) {
-      const inRoomIds = (res.inRoom || []).map(s => String(s.id));
+      const inRoomIds = (res.students || []).map(s => String(s.id));
       return inRoomIds.includes(String(studentId)) ? '退室' : '入室';
     }
   } catch (e) {
